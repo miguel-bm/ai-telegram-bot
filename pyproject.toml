@@ -1,0 +1,27 @@
+[tool.poetry]
+name = "ai-telegram-bot"
+version = "0.1.0"
+description = "A Python tool for running a Telegram bot to interact with various AI models through specific utilities"
+authors = ["Miguel Blanco Marcos <miguel.blanco.marcos@gmail.com>"]
+license = "LGPLv3"
+readme = "README.md"
+packages = [{include = "ai_telegram_bot"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+python-telegram-bot = {extras = ["job-queue"], version = "^20.1"}
+python-dotenv = "^1.0.0"
+python-decouple = "^3.8"
+openai = "^0.27.2"
+toml = "^0.10.2"
+beautifulsoup4 = "^4.11.2"
+pypdf2 = "^3.0.1"
+
+
+[tool.poetry.group.dev.dependencies]
+ruff = "^0.0.257"
+black = "^23.1.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
