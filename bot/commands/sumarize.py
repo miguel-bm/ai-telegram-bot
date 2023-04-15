@@ -2,7 +2,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 from telegram.ext import CommandHandler, ConversationHandler, MessageHandler, filters
 
-from bot.logging import logging
+from bot.logs import logging
 from bot.utilities.url_validator import is_valid_url
 from bot.utilities.pdf_reader import extract_text_from_pdf
 from bot.utilities.summary_generator import generate_summary

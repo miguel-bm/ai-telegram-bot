@@ -6,7 +6,7 @@ from telegram.ext import Application, CommandHandler
 
 from bot.commands.help import help_commnad_handler
 from bot.commands.sumarize import summarize_conversation_handler
-from bot.logging import logging
+from bot.logs import logging
 import toml
 
 BOT_TOKEN = config("BOT_API_KEY", default=None)

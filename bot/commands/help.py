@@ -3,7 +3,7 @@ from pathlib import Path
 from telegram import Update
 from telegram.ext import CommandHandler, ContextTypes
 
-from bot.logging import logging
+from bot.logs import logging
 
 # Load the help text from bot/assets/help_text.md
 
