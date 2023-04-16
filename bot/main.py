@@ -10,11 +10,13 @@ from bot.utilities.access import AccessManager
 
 logger = get_logger(__name__)
 
-bot_token = get_bot_token()
-access_manager = AccessManager.from_toml()
-
 
 def main():
+    bot_token = get_bot_token()
+    logger.info("Bot token loaded")
+
+    access_manager = AccessManager.from_toml()
+
     # Create the bot and pass it to the app
     bot = Bot(token=bot_token)
     app = Application.builder().bot(bot).concurrent_updates(True).build()

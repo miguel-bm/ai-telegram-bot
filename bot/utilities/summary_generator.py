@@ -43,12 +43,3 @@ def generate_summary(
     )
 
     return response.choices[0].message["content"]
-
-
-if __name__ == "__main__":
-    from bot.utilities.pdf_reader import extract_text_from_pdf
-    from pathlib import Path
-
-    pdf_path = Path("/Users/miguel/Downloads/s41586-023-05781-7.pdf")
-    text = extract_text_from_pdf(pdf_path)
-    print(generate_summary(text, words_limit=50))
