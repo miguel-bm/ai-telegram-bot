@@ -129,4 +129,15 @@ dmypy.json
 .pyre/
 
 # Secrets
-.env
+.envsecrets.auto.tfvars
+
+# Infrastructure
+*.tfstate
+.terraform/.terraform.lock.hcl
+.terraform/terraform.tfstate.backup
+.terraform/terraform.tfstate.backup.lock.info
+.terraform/terraform.tfstate.lock.info
+.terraform/terraform/*
+terraform/.terraform.lock.hcl
+terraform/terraform.tfstate.backup
+terraform/.terraform/providers/registry.terraform.io/hashicorp/aws/4.63.0/darwin_arm64/terraform-provider-aws_v4.63.0_x5

@@ -19,3 +19,31 @@ rebuild_rerun:
 # Enter the command line inside the running Docker container
 shell:
     docker exec -it your_bot_container_name /bin/bash
+
+terraform-init:
+    #!/bin/sh
+    cd terraform
+    ./run_terraform.sh init
+
+
+terraform-validate:
+    #!/bin/sh
+    cd terraform
+    ./run_terraform.sh validate
+
+terraform-plan:
+    #!/bin/sh
+    cd terraform
+    ./run_terraform.sh plan
+
+
+terraform-apply:
+    #!/bin/sh
+    cd terraform
+    ./run_terraform.sh apply
+
+
+terraform-destroy:
+    #!/bin/sh
+    cd terraform
+    ./run_terraform.sh destroy

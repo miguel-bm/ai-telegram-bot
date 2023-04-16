@@ -2,7 +2,7 @@ import logging
 
 from decouple import config
 from telegram import Bot
-from telegram.ext import Application, CommandHandler
+from telegram.ext import Application
 
 from bot.commands.help import help_commnad_handler
 from bot.commands.sumarize import summarize_conversation_handler
