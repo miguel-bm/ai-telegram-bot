@@ -1,5 +1,6 @@
 import openai
 from decouple import config
+from typing import Optional
 
 OPENAI_API_KEY = config("OPENAI_API_KEY", default=None)
 
@@ -21,7 +22,7 @@ def generate_summary(
     text: str,
     temperature: float = 0.7,
     input_limit: int = 1048,
-    words_limit: int | None = None,
+    words_limit: Optional[int] = None,
 ) -> str:
     text_words = text.split()[:input_limit]
     text = " ".join(text_words)

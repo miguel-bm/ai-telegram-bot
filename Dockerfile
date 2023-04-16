@@ -37,4 +37,4 @@ ENV PYTHONPATH=/app
 EXPOSE 8080
 
 # Set the entrypoint for running the bot
-CMD poetry run python bot/main.py
+CMD ["poetry", "run", "python", "bot/main.py"]

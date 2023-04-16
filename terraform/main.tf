@@ -7,6 +7,10 @@ provider "aws" {
 resource "aws_elastic_beanstalk_application" "bot_app" {
   name        = var.app_name
   description = "Personal AI Telegram bot application"
+
+  tags = {
+    Name = var.app_name
+  }
 }
 
 resource "aws_elastic_beanstalk_environment" "bot_env" {
@@ -46,6 +50,10 @@ resource "aws_elastic_beanstalk_environment" "bot_env" {
       value     = setting.value
     }
   }
+
+  tags = {
+    Name = var.app_name
+  }
 }
 
 resource "aws_iam_role" "eb_instance_role" {
@@ -63,6 +71,10 @@ resource "aws_iam_role" "eb_instance_role" {
       }
     ]
   })
+
+  tags = {
+    Name = var.app_name
+  }
 }
 
 resource "aws_iam_role_policy_attachment" "eb_instance_web_tier_policy" {
@@ -78,4 +90,62 @@ resource "aws_iam_role_policy_attachment" "eb_instance_docker_policy" {
 resource "aws_iam_instance_profile" "eb_instance_profile" {
   name = "${var.app_name}-instance-profile"
   role = aws_iam_role.eb_instance_role.name
+
+  tags = {
+    Name = var.app_name
+  }
+}
+
+resource "aws_ecr_repository" "bot_repo" {
+  name = var.app_name
+
+  force_delete = true
+
+  tags = {
+    Name = var.app_name
+  }
+}
+
+resource "aws_iam_policy" "ecr_access_policy" {
+  name        = "${var.app_name}-ecr-access-policy"
+  description = "Policy to grant Elastic Beanstalk instances access to ECR repository"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "ecr:GetAuthorizationToken",
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:GetRepositoryPolicy",
+          "ecr:DescribeRepositories",
+          "ecr:ListImages",
+          "ecr:BatchGetImage"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+
+  tags = {
+    Name = var.app_name
+  }
+}
+
+# Attach the new ECR access policy to the existing Elastic Beanstalk instance role
+resource "aws_iam_role_policy_attachment" "eb_instance_ecr_policy" {
+  policy_arn = aws_iam_policy.ecr_access_policy.arn
+  role       = aws_iam_role.eb_instance_role.name
+}
+
+resource "aws_s3_bucket" "bot_bucket" {
+  bucket = var.app_name
+
+  force_destroy = true
+
+  tags = {
+    Name = var.app_name
+  }
 }
