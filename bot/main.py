@@ -1,27 +1,30 @@
-import logging
-
-from decouple import config
 from telegram import Bot
 from telegram.ext import Application
 
 from bot.commands.help import help_commnad_handler
 from bot.commands.sumarize import summarize_conversation_handler
-from bot.logs import logging
-import toml
+from bot.utilities.logging import get_logger
+from bot.utilities.token import get_bot_token
+from bot.utilities.access import AccessManager
 
-BOT_TOKEN = config("BOT_API_KEY", default=None)
-access = toml.load("bot/config/access.toml")
+
+logger = get_logger(__name__)
+
+bot_token = get_bot_token()
+access_manager = AccessManager.from_toml()
 
 
 def main():
-    bot = Bot(token=BOT_TOKEN)
+    # Create the bot and pass it to the app
+    bot = Bot(token=bot_token)
     app = Application.builder().bot(bot).concurrent_updates(True).build()
 
-    # add logs
+    # Add handlers to the app
     app.add_handler(help_commnad_handler)
     app.add_handler(summarize_conversation_handler)
 
-    logging.info("Bot started, press Ctrl+C to stop it")
+    # Start the bot
+    logger.info("Bot started, press Ctrl+C to stop it")
     app.run_polling()
 
 

@@ -22,10 +22,6 @@ COPY poetry.lock pyproject.toml ./
 RUN poetry config virtualenvs.create false \
     && poetry install  --no-interaction --no-ansi --only main --no-root
 
-
-# Install Poetry
-#RUN curl -sSL https://install.python-poetry.org | python3 -
-
 # Copy the rest of the application code
 COPY bot/ bot/
 COPY .env ./

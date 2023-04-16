@@ -2,7 +2,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 from telegram.ext import CommandHandler, ConversationHandler, MessageHandler, filters
 
-from bot.logs import logging
+from bot.utilities.logging import get_logger
 from bot.utilities.url_validator import is_valid_url
 from bot.utilities.pdf_reader import extract_text_from_pdf
 from bot.utilities.summary_generator import generate_summary
@@ -12,10 +12,12 @@ TIMEOUT_SECONDS = 120
 
 TEXT_TO_SUMMARIZE = 0
 
+logger = get_logger(__name__)
+
 
 async def sumarize_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Takes in a text, URL, or file and returns a summary of the text."""
-    logging.info(
+    logger.info(
         f"User {update.effective_user.username} with id {update.effective_user.id} requested a summary"
     )
 
@@ -36,7 +38,7 @@ async def end_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 async def timeout_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Cancels and ends the conversation."""
-    logging.info(
+    logger.info(
         f"Summarize conversation with {update.effective_user.username} timed out, cancelling"
     )
     await update.message.reply_text("Summarize conversation timed out, cancelling")
@@ -57,7 +59,7 @@ async def summary_text_handler(
     # If the user sends a URL, download the text from the URL
     if is_valid_url(text_from_user):
         url = text_from_user
-        logging.info(f"Downloading text from {url}")
+        logger.info(f"Downloading text from {url}")
         # Send reply saying we're downloading the text
         await update.message.reply_text(f"Downloading text from {text_from_user}...")
         # After a few seconds, reply that this is not implemented yet
@@ -78,7 +80,7 @@ async def summary_pdf_handler(
     """Handles text responses"""
     try:
         document = update.message.document
-        logging.info(f"Getting text from PDF")
+        logger.info(f"Getting text from PDF")
         await update.message.reply_text(f"Downloading PDF...")
         file = await document.get_file()
         file_path = await file.download_to_drive("temp.pdf")
@@ -86,13 +88,13 @@ async def summary_pdf_handler(
         # delete file
         file_path.unlink()
     except:
-        logging.info(f"Error getting text from PDF")
+        logger.info(f"Error getting text from PDF")
         await update.message.reply_text("Error downloading PDF, it might be too large!")
         return ConversationHandler.END
 
     summary_promise = summary_generator(text_from_file)
     await update.message.reply_text(f"Generating summary...")
-    logging.info(f"Generating summary")
+    logger.info(f"Generating summary")
     summary = await summary_promise
     await update.message.reply_text(summary)
     return ConversationHandler.END
