@@ -21,6 +21,7 @@ google-search-results = "^2.4.2"
 requests = "^2.28.2"
 html2text = "^2020.1.16"
 yeagerai-agent = "^0.0.37"
+tiktoken = "^0.3.3"
 
 
 [tool.poetry.group.dev.dependencies]
@@ -28,6 +29,7 @@ ruff = "^0.0.257"
 black = "^23.1.0"
 ipynb = "^0.5.1"
 ipykernel = "^6.22.0"
+pytest = "^7.3.1"
 
 [build-system]
 requires = ["poetry-core"]
