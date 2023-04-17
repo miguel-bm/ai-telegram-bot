@@ -1,6 +1,6 @@
-import openai
 from typing import Optional
-import tiktoken
+
+from bot.modules.openai_conversation import OpenAIConversation
 
 
 class Summarizer:
@@ -8,7 +8,7 @@ class Summarizer:
     GPT_4_LIMIT = 8000
     WORDS_LIMIT_ADDENDUM = " and less than {words_limit} words"
     SYSTEM_PROMPT = "You are a helpful assistant that generates summaries of texts extracted from PDF files or webpages."
-    PROMPT_STRUCTURE = """Generate an executive summary of the text in the following format{words_limit_text}:
+    PROMPT = """Generate an executive summary of the text in the following format{words_limit_text}:
 Subject: [theme]
 Key points:
 - ...
@@ -17,77 +17,83 @@ The text is:
 {text}
 """
 
-    def __init__(self, api_key: str, allow_gpt4: bool = True) -> None:
-        self._api_key = api_key
+    RECURSIVE_PROMPT = """
+You have generated the following summary from the beginning of a text to summarize:
+{previous_summary}
+
+Now, generate more key points for the next part of text in the following format{words_limit_text}:
+- ...
+
+The next part of text is: {text}
+"""
+
+    def __init__(
+        self,
+        conversation: OpenAIConversation,
+        allow_gpt4: bool = False,
+        allow_recursion: bool = True,
+    ) -> None:
+        self._conversation = conversation
         self._allow_gpt4 = allow_gpt4
+        self._allow_recursion = allow_recursion
 
-    def _get_tokenizer(self) -> tiktoken.Encoding:
-        return tiktoken.get_encoding("cl100k_base")
-
-    def _get_base_prompt(
+    def _get_user_message(
         self,
         text: str,
         words_limit: Optional[int] = None,
+        previous_summary: Optional[str] = None,
     ) -> str:
-        words_limit_text = (
-            ""
-            if words_limit is None
-            else self.WORDS_LIMIT_ADDENDUM.format(words_limit=words_limit)
-        )
-        return self.PROMPT_STRUCTURE.format(
-            words_limit_text=words_limit_text, text=text
-        )
-
-    def _decide_model(self, base_prompt: str) -> tuple[str, str]:
-        tokenizer = self._get_tokenizer()
-        tokenized_system_prompt_length = len(tokenizer.encode(self.SYSTEM_PROMPT))
-        tokenized_base_prompt_length = len(tokenizer.encode(base_prompt))
-        total_length = tokenized_system_prompt_length + tokenized_base_prompt_length
-
-        if total_length <= self.GPT_35_LIMIT:
-            return base_prompt, "gpt-3.5-turbo"
-        elif total_length <= self.GPT_4_LIMIT and self._allow_gpt4:
-            return base_prompt, "gpt-4"
+        words_limit_text = self.WORDS_LIMIT_ADDENDUM.format(words_limit=words_limit)
+        words_limit_text = "" if words_limit is None else words_limit_text
+        if previous_summary is None:
+            return self.PROMPT.format(
+                words_limit_text=words_limit_text,
+                text=text,
+            )
         else:
-            # Reduce the prompt to fit the limit
-            limit = self.GPT_4_LIMIT if self._allow_gpt4 else self.GPT_35_LIMIT
-            message_limit = limit - tokenized_system_prompt_length
-            model = "gpt-4" if self._allow_gpt4 else "gpt-3.5-turbo"
-            prompt = tokenizer.decode(tokenizer.encode(base_prompt)[:message_limit])
-            return prompt, model
+            return self.RECURSIVE_PROMPT.format(
+                words_limit_text=words_limit_text,
+                text=text,
+                previous_summary=previous_summary,
+            )
 
-    def _get_chat_completion(
-        self,
-        model: str,
-        system_prompt: str,
-        message: str,
-        temperature: float,
-    ) -> openai.ChatCompletion:
-        openai.api_key = self._api_key
-        return openai.ChatCompletion.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": message},
-            ],
-            temperature=temperature,
-        )
+    def _process_summary(self, summary: str, cut_from: str) -> str:
+        subject_index = summary.find(cut_from)
+        if subject_index != -1:
+            summary = summary[subject_index:]
+        return summary
 
     def generate_summary(
         self,
         text: str,
         words_limit: Optional[int] = None,
         temperature: float = 0.7,
+        previous_summary: Optional[str] = None,
     ) -> str:
-        base_prompt = self._get_base_prompt(text, words_limit)
-
-        message, model = self._decide_model(base_prompt)
-
-        response = self._get_chat_completion(
-            model=model,
-            system_prompt=self.SYSTEM_PROMPT,
-            message=message,
+        user_message = self._get_user_message(text, words_limit, previous_summary)
+        response = self._conversation.get_completion(
+            user_message=user_message,
             temperature=temperature,
+            allow_model_upgrade=self._allow_gpt4,
+            allow_message_removal=False,
+            allow_message_truncation=True,
+            system_prompt=self.SYSTEM_PROMPT,
         )
 
-        return response.choices[0].message["content"]
+        if previous_summary:
+            # Add the new part of summary to the previous one
+            new_content = self._process_summary(response.content, cut_from="-")
+            summary = previous_summary + "\n" + new_content
+        else:
+            summary = self._process_summary(response.content, cut_from="Subject:")
+
+        cut_prompt = response.cut_prompt
+        if cut_prompt and self._allow_recursion:
+            # Recursively generate more key points for the next part of text
+            return self.generate_summary(
+                cut_prompt,
+                words_limit,
+                temperature,
+                previous_summary=summary,
+            )
+        return summary

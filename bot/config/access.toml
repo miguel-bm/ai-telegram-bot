@@ -1,6 +1,6 @@
 admins = [
     "miguelblancomarcos"
 ]
-whitelisted_users = [
+whitelist = [
     "miguelblancomarcos"
 ]

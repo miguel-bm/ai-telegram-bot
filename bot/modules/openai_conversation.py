@@ -1,7 +1,10 @@
-import openai
 from dataclasses import dataclass
 from enum import Enum
+from typing import Optional
+
+import openai
 import tiktoken
+
 from bot.utilities.logging import get_logger
 
 logger = get_logger(__name__)
@@ -43,7 +46,7 @@ class Usage:
     total_tokens: int
 
 
-@dataclass
+@dataclass(frozen=True)
 class Completion:
     message: Message
     finish_reason: str
@@ -51,7 +54,19 @@ class Completion:
 
 
 @dataclass
-class ChatResponse:
+class OpenAIChatResponse:
+    created: int
+    finish_reason: str
+    model: str
+    usage: Usage
+    history: list[Message]
+    prompt: str
+    cut_prompt: str
+    content: str
+
+
+@dataclass(frozen=True)
+class ConversationStatus:
     id: str
     object: str
     created: int
@@ -71,6 +86,7 @@ class OpenAIConversation:
         self.model = model
         self._chat_history: list[Message] = []
         self._system_prompt = system_prompt or ""
+        # TODO: Register total API usage and costs
 
     def _add_message(self, role: Role, content: str) -> None:
         self._chat_history.append(Message(role=role, content=content))
@@ -78,44 +94,46 @@ class OpenAIConversation:
     def _get_system_prompt_message(self) -> str:
         return Message(role=Role.SYSTEM, content=self._system_prompt)
 
-    def get_system_prompt(self) -> str:
-        return self._system_prompt
-
-    def set_system_prompt(self, system_prompt: str) -> None:
-        self._system_prompt = system_prompt
-
-    def get_chat_history(self) -> list[Message]:
-        return self._get_system_prompt_message() + self._chat_history
-
     def _get_tokenizer(self) -> tiktoken.Encoding:
         return tiktoken.get_encoding(TOKENIZER)
 
-    def _parse_response(self, response: dict) -> ChatResponse:
+    def _compose_response(
+        self, response: dict, prompt: str, cut_prompt: str
+    ) -> OpenAIChatResponse:
         choice = response["choices"][0]
-        message = Message(
-            role=choice["message"]["role"], content=choice["message"]["content"]
-        )
-        return ChatResponse(
-            id=response["id"],
-            object=response["object"],
+        return OpenAIChatResponse(
             created=response["created"],
+            finish_reason=choice["finish_reason"],
             model=response["model"],
             usage=response["usage"],
-            completion=Completion(
-                message=message,
-                finish_reason=choice["finish_reason"],
-                index=choice["index"],
-            ),
+            history=self._chat_history.copy(),
+            prompt=prompt,
+            cut_prompt=cut_prompt,
+            content=choice["message"]["content"],
         )
 
-    def _preprocess_prompt(
+    def get_text_token_length(
+        self,
+        text: list[Message],
+        tokenizer: Optional[tiktoken.Encoding] = None,
+    ) -> int:
+        if tokenizer is None:
+            tokenizer = self._get_tokenizer()
+        return len(tokenizer.encode(text))
+
+    def get_limit(self) -> int:
+        return TOKEN_LIMITS[self.model]
+
+    def preprocess_prompt(
         self,
         prompt: list[Message],
-        tokenizer: tiktoken.Encoding,
         allow_model_upgrade: bool = False,
         allow_message_removal: bool = True,
         allow_message_truncation: bool = True,
-    ) -> list[Message]:
+        tokenizer: Optional[tiktoken.Encoding] = None,
+    ) -> tuple[list[Message], str]:
+        if tokenizer is None:
+            tokenizer = self._get_tokenizer()
         assert len(prompt) > 0, "The prompt must not be empty in order to preprocess it"
         assert (
             prompt[0].role == Role.SYSTEM
@@ -126,20 +144,28 @@ class OpenAIConversation:
                 "The prompt must contain at least 2 messages: system and user"
             )
 
-        total_limit = TOKEN_LIMITS[self.model]
-        prompt_tokens = [tokenizer.encode(m.content) for m in prompt]
-        system_tokens = prompt_tokens[0]
-        if system_tokens > total_limit:
-            raise ValueError(
-                f"The system prompt is too long, it must be less than {total_limit} tokens"
-            )
+        total_prompt_limit = self.get_limit()
+        prompt_tokens = [
+            self.get_text_token_length(message.content, tokenizer) for message in prompt
+        ]
+        total_prompt_length = sum(prompt_tokens)
 
-        total_length = sum(prompt_tokens)
-        if total_length >= total_limit:
+        system_prompt_length = prompt_tokens[0]
+        if system_prompt_length > total_prompt_limit:
+            raise ValueError(
+                f"The system prompt is too long, it must be less than {total_prompt_limit} tokens"
+            )
+        if total_prompt_length >= total_prompt_limit:
             if allow_model_upgrade and self.model == OpenAIChatModel.GPT_3_5:
                 self.model = OpenAIChatModel.GPT_4
                 logger.info("Upgrading model to GPT-4 to fit larger prompt")
-                return self._preprocess_prompt(prompt, allow_model_upgrade=False)
+                return self.preprocess_prompt(
+                    prompt,
+                    tokenizer,
+                    False,
+                    allow_message_removal,
+                    allow_message_truncation,
+                )
 
             if len(prompt) > 2 and allow_message_removal:
                 # Elimitate the oldest message except the system prompt until the prompt fits
@@ -147,7 +173,13 @@ class OpenAIConversation:
                 logger.info(
                     "The prompt is too long, reducing the chat history to fit the limit"
                 )
-                return self._preprocess_prompt(prompt, tokenizer, False)
+                return self.preprocess_prompt(
+                    prompt,
+                    tokenizer,
+                    False,
+                    allow_message_removal,
+                    allow_message_truncation,
+                )
 
             if len(prompt) == 2 and allow_message_truncation:
                 # Reduce the user message until the prompt fits
@@ -155,38 +187,50 @@ class OpenAIConversation:
                     "The prompt is too long, reducing the user message to fit the limit"
                 )
                 user_message = prompt[-1]
-                user_limit = total_limit - system_tokens
+                user_limit = total_prompt_limit - system_prompt_length
                 user_content = tokenizer.decode(
                     tokenizer.encode(user_message.content)[:user_limit]
                 )
+                cut_content = user_message.content[len(user_content) :]
                 user_message = Message(role=user_message.role, content=user_content)
-                return self._preprocess_prompt(
-                    [prompt[0], user_message], tokenizer, False
-                )
+                return [prompt[0], user_message], cut_content
 
             raise ValueError(
-                f"The prompt is too long, it must be less than {total_limit} tokens"
+                f"The prompt is too long, it must be less than {total_prompt_limit} tokens"
             )
 
-        return prompt
+        return prompt, ""
+
+    def get_system_prompt(self) -> str:
+        return self._system_prompt
+
+    def set_system_prompt(self, system_prompt: str) -> None:
+        self._system_prompt = system_prompt
+
+    def get_chat_history(self) -> list[Message]:
+        return self._get_system_prompt_message() + self._chat_history
 
     def get_completion(
         self,
         user_message: str,
         temperature: float = 0.7,
         allow_model_upgrade: bool = False,
+        allow_message_removal: bool = True,
+        allow_message_truncation: bool = True,
         system_prompt: str | None = None,
-    ) -> ChatResponse:
+    ) -> OpenAIChatResponse:
         if system_prompt is not None:
             self.set_system_prompt(system_prompt)
 
-        tokenizer = self._get_tokenizer()
         history = self.get_chat_history()
         new_message = Message(role=Role.USER, content=user_message)
         conversation_base_prompt = history + [new_message]
 
-        conversation_prompt = self._preprocess_prompt(
-            conversation_base_prompt, tokenizer, allow_model_upgrade
+        conversation_prompt, cut_prompt = self.preprocess_prompt(
+            conversation_base_prompt,
+            allow_model_upgrade,
+            allow_message_removal,
+            allow_message_truncation,
         )
 
         response = openai.ChatCompletion.create(
@@ -195,8 +239,8 @@ class OpenAIConversation:
             temperature=temperature,
         )
 
-        chat_response = self._parse_response(response)
+        chat_response = self._compose_response(response, user_message, cut_prompt)
         self._add_message(Role.USER, user_message)
-        self._add_message(Role.ASSISTANT, chat_response.completion.message.content)
+        self._add_message(Role.ASSISTANT, chat_response.content)
 
         return chat_response
