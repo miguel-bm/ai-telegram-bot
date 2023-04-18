@@ -6,7 +6,9 @@ ENV_NAME := `echo $ENV_NAME`
 REGION := `echo $AWS_REGION`
 PROFILE := `echo $AWS_PROFILE`
 
-# Build the Docker image using Docker Compose
+test:
+    poetry run pytest
+
 build:
     docker buildx build --platform linux/amd64 . -t {{APP_NAME}}
 
