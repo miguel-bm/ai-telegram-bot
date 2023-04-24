@@ -62,16 +62,19 @@ class AccessManager:
 def restricted(access_manager: AccessManager, only_admin: bool = False):
     def decorator(func):
         @wraps(func)
-        def wrapped(update: Update, context: CallbackContext, *args, **kwargs):
+        async def wrapped(update: Update, context: CallbackContext, *args, **kwargs):
             username = str(update.effective_user.username)
             if only_admin:
                 has_access = access_manager.is_admin(username)
             else:
                 has_access = access_manager.is_allowed(username)
             if not has_access:
-                update.message.reply_text("You are not authorized to use this bot.")
+                logger.info(f"Unauthorized access denied for {username}.")
+                await update.message.reply_text(
+                    "You are not authorized to use this functionality."
+                )
                 return
-            return func(update, context, *args, **kwargs)
+            return await func(update, context, *args, **kwargs)
 
         return wrapped
 

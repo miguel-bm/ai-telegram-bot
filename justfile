@@ -22,7 +22,7 @@ stop:
 
 # Rebuild and rerun the Docker container using Docker Compose
 rebuild_rerun:
-    just down
+    just stop
     just build
     just run
 
