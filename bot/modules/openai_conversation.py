@@ -4,8 +4,13 @@ from typing import Optional
 
 import openai
 import tiktoken
+from decouple import config
 
 from bot.utilities.logging import get_logger
+
+OPENAI_API_KEY = config("OPENAI_API_KEY", default=None)
+
+openai.api_key = OPENAI_API_KEY
 
 logger = get_logger(__name__)
 
@@ -78,11 +83,9 @@ class ConversationStatus:
 class OpenAIConversation:
     def __init__(
         self,
-        api_key: str,
         model: OpenAIChatModel = OpenAIChatModel.GPT_3_5,
         system_prompt: str | None = None,
     ):
-        self._api_key = api_key
         self.model = model
         self._chat_history: list[Message] = []
         self._system_prompt = system_prompt or ""
@@ -91,7 +94,7 @@ class OpenAIConversation:
     def _add_message(self, role: Role, content: str) -> None:
         self._chat_history.append(Message(role=role, content=content))
 
-    def _get_system_prompt_message(self) -> str:
+    def _get_system_prompt_message(self) -> Message:
         return Message(role=Role.SYSTEM, content=self._system_prompt)
 
     def _get_tokenizer(self) -> tiktoken.Encoding:
@@ -113,16 +116,14 @@ class OpenAIConversation:
         )
 
     def get_text_token_length(
-        self,
-        text: list[Message],
-        tokenizer: Optional[tiktoken.Encoding] = None,
+        self, text: str, tokenizer: Optional[tiktoken.Encoding] = None
     ) -> int:
         if tokenizer is None:
             tokenizer = self._get_tokenizer()
         return len(tokenizer.encode(text))
 
-    def get_limit(self) -> int:
-        return TOKEN_LIMITS[self.model]
+    def get_limit(self, margin: int) -> int:
+        return TOKEN_LIMITS[self.model] - margin
 
     def preprocess_prompt(
         self,
@@ -131,6 +132,7 @@ class OpenAIConversation:
         allow_message_removal: bool = True,
         allow_message_truncation: bool = True,
         tokenizer: Optional[tiktoken.Encoding] = None,
+        token_margin: int = 1000,
     ) -> tuple[list[Message], str]:
         if tokenizer is None:
             tokenizer = self._get_tokenizer()
@@ -144,11 +146,12 @@ class OpenAIConversation:
                 "The prompt must contain at least 2 messages: system and user"
             )
 
-        total_prompt_limit = self.get_limit()
+        total_prompt_limit = self.get_limit(token_margin)
         prompt_tokens = [
             self.get_text_token_length(message.content, tokenizer) for message in prompt
         ]
         total_prompt_length = sum(prompt_tokens)
+        logger.info(f"Prompt length: {total_prompt_length} tokens")
 
         system_prompt_length = prompt_tokens[0]
         if system_prompt_length > total_prompt_limit:
@@ -160,25 +163,27 @@ class OpenAIConversation:
                 self.model = OpenAIChatModel.GPT_4
                 logger.info("Upgrading model to GPT-4 to fit larger prompt")
                 return self.preprocess_prompt(
-                    prompt,
-                    tokenizer,
-                    False,
-                    allow_message_removal,
-                    allow_message_truncation,
+                    prompt=prompt,
+                    allow_model_upgrade=False,
+                    allow_message_removal=allow_message_removal,
+                    allow_message_truncation=allow_message_truncation,
+                    tokenizer=tokenizer,
+                    token_margin=token_margin,
                 )
 
             if len(prompt) > 2 and allow_message_removal:
                 # Elimitate the oldest message except the system prompt until the prompt fits
                 prompt = prompt[0:1] + prompt[2:]
-                logger.info(
+                logger.warning(
                     "The prompt is too long, reducing the chat history to fit the limit"
                 )
                 return self.preprocess_prompt(
-                    prompt,
-                    tokenizer,
-                    False,
-                    allow_message_removal,
-                    allow_message_truncation,
+                    prompt=prompt,
+                    allow_model_upgrade=False,
+                    allow_message_removal=allow_message_removal,
+                    allow_message_truncation=allow_message_truncation,
+                    tokenizer=tokenizer,
+                    token_margin=token_margin,
                 )
 
             if len(prompt) == 2 and allow_message_truncation:
@@ -208,7 +213,7 @@ class OpenAIConversation:
         self._system_prompt = system_prompt
 
     def get_chat_history(self) -> list[Message]:
-        return self._get_system_prompt_message() + self._chat_history
+        return [self._get_system_prompt_message()] + self._chat_history
 
     def get_completion(
         self,
@@ -218,9 +223,12 @@ class OpenAIConversation:
         allow_message_removal: bool = True,
         allow_message_truncation: bool = True,
         system_prompt: str | None = None,
+        token_margin: int = 1000,
     ) -> OpenAIChatResponse:
         if system_prompt is not None:
             self.set_system_prompt(system_prompt)
+
+        logger.info(f"Initiating completion process")
 
         history = self.get_chat_history()
         new_message = Message(role=Role.USER, content=user_message)
@@ -231,15 +239,18 @@ class OpenAIConversation:
             allow_model_upgrade,
             allow_message_removal,
             allow_message_truncation,
+            token_margin=token_margin,
         )
 
         response = openai.ChatCompletion.create(
-            model=self.model,
-            messages={message.to_dict() for message in conversation_prompt},
+            model=self.model.value,
+            messages=[message.to_dict() for message in conversation_prompt],
             temperature=temperature,
         )
+        logger.info(f"Completion process finished")
 
         chat_response = self._compose_response(response, user_message, cut_prompt)
+        # logger.info("Chat response: " + chat_response.content)
         self._add_message(Role.USER, user_message)
         self._add_message(Role.ASSISTANT, chat_response.content)
 

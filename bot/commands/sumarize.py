@@ -1,11 +1,12 @@
 from telegram import Update
 from telegram.ext import ContextTypes
 from telegram.ext import CommandHandler, ConversationHandler, MessageHandler, filters
+from bot.utilities.access import restricted, AccessManager
 
 from bot.utilities.logging import get_logger
 from bot.utilities.url_validator import is_valid_url
 from bot.utilities.pdf_reader import extract_text_from_pdf
-from bot.utilities.summary_generator import generate_summary
+from bot.modules.summarizer import Summarizer
 import asyncio
 
 TIMEOUT_SECONDS = 120
@@ -13,8 +14,10 @@ TIMEOUT_SECONDS = 120
 TEXT_TO_SUMMARIZE = 0
 
 logger = get_logger(__name__)
+access_manager = AccessManager.from_toml()
 
 
+@restricted(access_manager)
 async def sumarize_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Takes in a text, URL, or file and returns a summary of the text."""
     logger.info(
@@ -47,7 +50,9 @@ async def timeout_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 async def summary_generator(text: str) -> str:
     """Generates a summary of the text"""
-    return generate_summary(text)
+    summarizer = Summarizer()
+    summary = summarizer.generate_summary(text, temperature=0.2)
+    return summary
 
 
 async def summary_text_handler(

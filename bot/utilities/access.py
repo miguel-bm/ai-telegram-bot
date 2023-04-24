@@ -63,7 +63,7 @@ def restricted(access_manager: AccessManager, only_admin: bool = False):
     def decorator(func):
         @wraps(func)
         def wrapped(update: Update, context: CallbackContext, *args, **kwargs):
-            username = update.effective_user.username
+            username = str(update.effective_user.username)
             if only_admin:
                 has_access = access_manager.is_admin(username)
             else:

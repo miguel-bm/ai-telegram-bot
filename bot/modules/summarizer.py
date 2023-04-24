@@ -1,6 +1,9 @@
 from typing import Optional
 
 from bot.modules.openai_conversation import OpenAIConversation
+from bot.utilities.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class Summarizer:
@@ -11,6 +14,7 @@ class Summarizer:
     PROMPT = """Generate an executive summary of the text in the following format{words_limit_text}:
 Subject: [theme]
 Key points:
+- [key point]
 - ...
 
 The text is:
@@ -21,19 +25,20 @@ The text is:
 You have generated the following summary from the beginning of a text to summarize:
 {previous_summary}
 
-Now, generate more key points for the next part of text in the following format{words_limit_text}:
+Now, generate more new key points for the next part of text in the following format{words_limit_text}:
+Key points:
+- [key point]
 - ...
+
 
 The next part of text is: {text}
 """
 
     def __init__(
         self,
-        conversation: OpenAIConversation,
         allow_gpt4: bool = False,
         allow_recursion: bool = True,
     ) -> None:
-        self._conversation = conversation
         self._allow_gpt4 = allow_gpt4
         self._allow_recursion = allow_recursion
 
@@ -46,11 +51,13 @@ The next part of text is: {text}
         words_limit_text = self.WORDS_LIMIT_ADDENDUM.format(words_limit=words_limit)
         words_limit_text = "" if words_limit is None else words_limit_text
         if previous_summary is None:
+            logger.info("Generating standard summary prompt")
             return self.PROMPT.format(
                 words_limit_text=words_limit_text,
                 text=text,
             )
         else:
+            logger.info("Generating recursive summary prompt")
             return self.RECURSIVE_PROMPT.format(
                 words_limit_text=words_limit_text,
                 text=text,
@@ -63,6 +70,15 @@ The next part of text is: {text}
             summary = summary[subject_index:]
         return summary
 
+    def estimate_summary(
+        self,
+        text: str,
+        words_limit: Optional[int] = None,
+        previous_summary: Optional[str] = None,
+    ) -> int:
+        # TODO
+        pass
+
     def generate_summary(
         self,
         text: str,
@@ -70,14 +86,14 @@ The next part of text is: {text}
         temperature: float = 0.7,
         previous_summary: Optional[str] = None,
     ) -> str:
+        conversation = OpenAIConversation(system_prompt=self.SYSTEM_PROMPT)
         user_message = self._get_user_message(text, words_limit, previous_summary)
-        response = self._conversation.get_completion(
+        response = conversation.get_completion(
             user_message=user_message,
             temperature=temperature,
             allow_model_upgrade=self._allow_gpt4,
-            allow_message_removal=False,
+            allow_message_removal=True,
             allow_message_truncation=True,
-            system_prompt=self.SYSTEM_PROMPT,
         )
 
         if previous_summary:
@@ -90,6 +106,7 @@ The next part of text is: {text}
         cut_prompt = response.cut_prompt
         if cut_prompt and self._allow_recursion:
             # Recursively generate more key points for the next part of text
+            logger.info("Recursively generating more key points")
             return self.generate_summary(
                 cut_prompt,
                 words_limit,
@@ -97,3 +114,25 @@ The next part of text is: {text}
                 previous_summary=summary,
             )
         return summary
+
+
+if __name__ == "__main__":
+    from bot.utilities.token import get_bot_token
+    from pathlib import Path
+
+    bot_token = get_bot_token()
+
+    conv = OpenAIConversation(bot_token)
+    # summarizer = Summarizer(conv, allow_gpt4=False, allow_recursion=True)
+    path_to_text = Path("tests/assets/count.txt")
+    text = path_to_text.read_text()
+    text_section = text[:30000]
+
+    tokens = conv.get_text_token_length(text_section)
+    print(f"Text length: {tokens} tokens")
+
+    summarizer = Summarizer(allow_gpt4=False, allow_recursion=True)
+    summary = summarizer.generate_summary(
+        text_section, words_limit=100, temperature=0.2
+    )
+    print(summary)
